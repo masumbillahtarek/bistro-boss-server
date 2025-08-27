@@ -1,8 +1,11 @@
 const express=require('express')
 const cors=require('cors')
+
+
 const app=express()
 var jwt = require('jsonwebtoken');
 require('dotenv').config()
+const stripe = require('stripe')(process.env.STRIPE_SECRET_KEY)
 const port=process.env.PORT||5000
 app.use(cors())
 app.use(express.json())
@@ -32,6 +35,7 @@ async function run() {
    const reviewsCollection=database.collection('reviews')
   const cartCollection=database.collection('cart')
     const userCollection=database.collection('users')
+     const paymentsCollection=database.collection('payments')
 //JWT related API
 app.post('/jwt',async(req,res)=>{
   const user=req.body
@@ -184,7 +188,39 @@ const result=await cartCollection.deleteOne(query)
 res.send(result)
 })
 
+// Payment Intents
+app.post('/create-payment-intent',async(req,res)=>{
+  const {price}=req.body
+  const amount=parseInt(price*100)
+  const paymentIntent=await stripe.paymentIntents.create({
+    amount:amount,
+    currency:'usd',
+   payment_method_types:['card']
+  })
+  res.send({
+    clientSecret:paymentIntent.client_secret
+  })
+})
 
+app.post('/payments',async(req,res)=>{
+  const payment=req.body;
+  const paymentResult=await paymentsCollection.insertOne(payment)
+
+  console.log(payment)
+  const query={_id:{
+    $in:payment.cartIds.map(id=> new ObjectId(id))
+  }}
+  const result=await cartCollection.deleteMany(query)
+  res.send({paymentResult,result})
+})
+app.get('/payments/:email',verifyToken,async(req,res)=>{
+  const query={email:req.params.email}
+  if(req.params.email!==req.decoded.email){
+    return res.status(403).send({message:'Forbidden Access'})
+  }
+  const result=await paymentsCollection.find(query).toArray()
+  res.send(result)
+})
     // Send a ping to confirm a successful connection
     await client.db("admin").command({ ping: 1 });
     console.log("Pinged your deployment. You successfully connected to MongoDB!");
